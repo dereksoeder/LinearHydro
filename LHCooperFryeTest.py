@@ -92,20 +92,33 @@ def integrand2(phip, pT, coshrap, sinhrap, sigma0, sigmaT, sigma3, u0, uT, u3):
 def integrand3(phip, pT, rap, etas, *sigma_and_u):
     return integrand2(phip, pT, np.cosh(rap - etas), np.sinh(rap - etas), *sigma_and_u)
 
+def differential(arr, i, j=None):
+    f = (lambda idx: arr[idx]) if j is None else (lambda idx: arr[idx][j])
+
+    if (i == 0):
+        return (f(i+1) - f(i))
+    elif (i == len(arr) - 1):
+        return (f(i) - f(i-1))
+    elif (i == 1) or (i == len(arr) - 2):
+        return (f(i+1) - f(i-1)) / 2.
+    else:
+        return (-f(i+2) + 8.*f(i+1) - 8.*f(i-1) + f(i-2)) / 12.  # five-point stencil
+
+
 for rapspec in raplist:
     Npi = 0.
 
-    for ietas, etas in enumerate(etaslist[:-1]):
+    for ietas, etas in enumerate(etaslist):
         # note: MUSIC covers only |y-etas| < 4.0 (see MUSIC/src/freeze_pseudo.cpp: Freeze::ComputeParticleSpectrum_pseudo_improved, y_minus_eta_cut), but the difference is minor
         if np.isscalar(rapspec):
             coshrap, sinhrap = np.cosh(rapspec - etas), np.sinh(rapspec - etas)
 
-        for itau, tau in enumerate(taulist[:-1]):
+        for itau, tau in enumerate(taulist):
             rf = rf_array[itau][ietas]
             if (rf < 1.E-8): continue
 
-            drf_in_tau  = (rf_array[itau+1][ietas] - rf) #if (itau  == 0) else (rf_array[itau+1][ietas] - rf_array[itau-1][ietas]) / 2.
-            drf_in_etas = (rf_array[itau][ietas+1] - rf) #if (ietas == 0) else (rf_array[itau][ietas+1] - rf_array[itau][ietas-1]) / 2.
+            drf_in_tau  = differential(rf_array, itau, ietas)
+            drf_in_etas = differential(rf_array[itau], ietas)
 
             sigma0 = -drf_in_tau * tau * detas
             sigmaT = dtau * tau * detas
