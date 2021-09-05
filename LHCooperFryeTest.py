@@ -1,6 +1,6 @@
 # Cooper-Frye computation for use with linear hydro, assuming a 2D Gaussian transverse profile
 #
-# Derek Soeder (@dereksoeder), last updated 2021-09-03
+# Derek Soeder (@dereksoeder), last updated 2021-09-04
 
 from sys import argv, stderr
 import numpy as np
