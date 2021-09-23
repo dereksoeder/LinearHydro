@@ -66,7 +66,7 @@ while True:
     ulist = np.array([ (1., vT, vL) for vT, vL in zip(vTprofile, vLprofile) ])
 
     ulist[:,1:] *= np.minimum(1., 0.9 / (np.linalg.norm(ulist[:,1:], axis=1) + 1.E-8))[:,np.newaxis]  # limit beta to <= 0.9
-    ulist /= np.sqrt(1. - np.linalg.norm(ulist[:,1:], axis=1))[:,np.newaxis]  # apply gamma factor
+    ulist /= np.sqrt(1. - np.square(ulist[:,1:]).sum(axis=1))[:,np.newaxis]  # apply gamma factor
 
     rf_array.append(rflist)
     u_array.append(ulist)
