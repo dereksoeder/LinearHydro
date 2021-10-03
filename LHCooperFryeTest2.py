@@ -1,7 +1,7 @@
 # Cooper-Frye computation for use with linear hydro, assuming a 2D Gaussian transverse profile
 # v2: calls into scipy.integrate at a low level from Cython code for much faster numerical integration
 #
-# Derek Soeder (@dereksoeder), last updated 2021-09-05
+# Derek Soeder (@dereksoeder), last updated 2021-10-02
 
 from sys import argv, stderr
 import numpy as np
@@ -12,12 +12,55 @@ import pyximport ; pyximport.install()
 import LHCooperFryeTest2quad
 
 
+def compute_sigmas(grid, dx, dy):
+    sigmas = []
+
+    xmesh, ymesh = np.meshgrid(dx * np.arange(grid.shape[2]), dy * np.arange(grid.shape[1]), indexing="xy")
+
+    for slice in grid:
+        slicesum = slice.sum()
+        xcm, ycm = ( np.sum(mesh * slice) / slicesum for mesh in (xmesh, ymesh) )
+
+        rs = np.sqrt( np.square(xmesh - xcm) + np.square(ymesh - ycm) )
+        rmin, rmax = np.sqrt(dx**2 + dy**2) / 2., rs.max() + np.sqrt(dx**2 + dy**2)
+
+        cutoff = slicesum * 0.39346934028736696  # \int_0^1 r dr exp(-r**2/2) / \int_0^\infty r dr exp(-r**2/2)
+
+        for steps in range(30):
+            r = (rmin + rmax) / 2.
+            rmin, rmax = (r, rmax) if (slice[rs <= r].sum() <= cutoff) else (rmin, r)
+
+        sigmas.append(rmax)
+
+    return np.array(sigmas)
+
+
 if (len(argv[1:]) < 7):
-    print(f"Usage:   LHCooperFryeTest.py   dEdetasfile  transverse_Gaussian_width_in_fm  tau0_in_fm/c  dtau_in_fm/c  epsilon_FO_in_GeV/fm^3  T_FO_in_GeV  rapidity  [rapidity  [...]]", file=stderr)
+    print("Usage:   LHCooperFryeTest2.py   " +
+                   "{dETdetasfile transverse_Gaussian_width_in_fm | epsilongridfile dxy,detas}  " +
+                   "tau0_in_fm/c  dtau_in_fm/c  " +
+                   "epsilon_FO_in_GeV/fm^3  T_FO_in_GeV  " +
+                   "{rapidity | rapidity1,rapidity2}  [...]",
+          file=stderr)
     exit(1)
 
-dEdetasfile = argv[1]           # one row per etas slice (2 or more slices); each row is:  etas  dEdetas_in_GeV
-Gaussian_width, tau0, dtau, epsilon_FO, TFO = map(float, argv[2:7])
+if "," in argv[2]:
+    grid = np.loadtxt(argv[1], ndmin=2)  # nxy columns, nxy*netas rows representing netas slices
+    grid = grid.reshape(-1, grid.shape[1], grid.shape[1])
+    dxy, detas = map(float, argv[2].split(","))
+
+    profile0 = grid.sum(axis=(1,2)) * dxy**2
+    etassize = detas * (len(profile0) - 1)
+    etaslist = np.linspace(-etassize/2., etassize/2., len(profile0), endpoint=True)
+    Gaussian_width = np.average( compute_sigmas(grid, dxy, dxy), weights=profile0 )
+    del grid
+else:
+    etaslist, profile0 = np.loadtxt(argv[1], ndmin=2).T  # one row per etas slice (2 or more slices); each row is:  etas  dETdetas_in_GeV
+    detas = etaslist[1] - etaslist[0]
+    Gaussian_width = float(argv[2])
+
+tau0, dtau, epsilon_FO, TFO = map(float, argv[3:7])
+
 raplist = list(map(float, argv[7:]))
 
 
@@ -32,9 +75,6 @@ Gaussian_width_sq = Gaussian_width**2  # square of width parameter for Gaussian 
 # load profile and perform linear hydro evolution
 #
 
-etaslist, profile0 = np.loadtxt(dEdetasfile, ndmin=2).T
-detas = etaslist[1] - etaslist[0]
-
 hydro = Hydro1p1()
 hydro.load(etaslist, profile0)
 
@@ -44,7 +84,7 @@ taulist = []
 
 print("Starting linear hydro...", file=stderr)
 
-n = 0
+n = -1  # include surface contribution at time tau_0
 while True:
     n += 1
     tau = tau0 + (n * dtau)
@@ -78,6 +118,9 @@ print(f"All slices frozen out at {taulist[-1]} fm/c.", file=stderr)
 #
 
 def differential(arr, i, j=None):
+    if (len(arr) == 1):
+        return 0.
+
     f = (lambda idx: arr[idx]) if j is None else (lambda idx: arr[idx][j])
 
     if (i == 0):
